@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { DailySnapshot, TopicProgress } from '@/domain/entities/DailySnapshot'
 import { createDailySnapshot } from '@/domain/entities/DailySnapshot'
 import type { ISnapshotRepository } from '@/domain/repositories/ISnapshotRepository'
@@ -79,60 +79,73 @@ export class SupabaseSnapshotRepository implements ISnapshotRepository {
   }
 
   async save(snapshot: DailySnapshot): Promise<DailySnapshot> {
-    await this.db
-      .insert(dailySnapshots)
-      .values({
-        id: snapshot.id,
-        userId: snapshot.userId as string,
-        leetcodeProfileId: snapshot.leetcodeProfileId,
-        snapshotDate: snapshot.snapshotDate.toISOString().split('T')[0]!,
-        totalSolved: snapshot.totalSolved,
-        easySolved: snapshot.easySolved,
-        mediumSolved: snapshot.mediumSolved,
-        hardSolved: snapshot.hardSolved,
-        totalSubmissions: snapshot.totalSubmissions,
-        ranking: snapshot.ranking,
-        contestRating: snapshot.contestRating?.toString() ?? null,
-      })
-      .onConflictDoUpdate({
-        target: [dailySnapshots.userId, dailySnapshots.snapshotDate],
-        set: {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .insert(dailySnapshots)
+        .values({
+          id: snapshot.id,
+          userId: snapshot.userId as string,
+          leetcodeProfileId: snapshot.leetcodeProfileId,
+          snapshotDate: snapshot.snapshotDate.toISOString().split('T')[0]!,
           totalSolved: snapshot.totalSolved,
           easySolved: snapshot.easySolved,
           mediumSolved: snapshot.mediumSolved,
           hardSolved: snapshot.hardSolved,
           totalSubmissions: snapshot.totalSubmissions,
           ranking: snapshot.ranking,
-        },
-      })
-
-    if (snapshot.topicProgress.length > 0) {
-      const slugs = snapshot.topicProgress.map((tp) => tp.topicSlug)
-      const topicRows = await this.db
-        .select({ id: topics.id, slug: topics.slug })
-        .from(topics)
-        .where(inArray(topics.slug, slugs))
-
-      const slugToId = new Map(topicRows.map((t) => [t.slug, t.id]))
-
-      const resolved = snapshot.topicProgress
-        .map((tp) => {
-          const topicId = slugToId.get(tp.topicSlug)
-          if (!topicId) return null
-          return {
-            snapshotId: snapshot.id,
-            topicId,
-            solved: tp.solved,
-            attempted: tp.attempted,
-            masteryScore: MasteryScore.toNumber(tp.masteryScore).toString(),
-          }
+          contestRating: snapshot.contestRating?.toString() ?? null,
         })
-        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .onConflictDoUpdate({
+          target: [dailySnapshots.userId, dailySnapshots.snapshotDate],
+          set: {
+            totalSolved: sql`excluded.total_solved`,
+            easySolved: sql`excluded.easy_solved`,
+            mediumSolved: sql`excluded.medium_solved`,
+            hardSolved: sql`excluded.hard_solved`,
+            totalSubmissions: sql`excluded.total_submissions`,
+            ranking: sql`excluded.ranking`,
+            contestRating: sql`excluded.contest_rating`,
+          },
+        })
 
-      if (resolved.length > 0) {
-        await this.db.insert(topicSnapshots).values(resolved).onConflictDoNothing()
+      if (snapshot.topicProgress.length > 0) {
+        const slugs = snapshot.topicProgress.map((tp) => tp.topicSlug)
+        const topicRows = await tx
+          .select({ id: topics.id, slug: topics.slug })
+          .from(topics)
+          .where(inArray(topics.slug, slugs))
+
+        const slugToId = new Map(topicRows.map((t) => [t.slug, t.id]))
+
+        const resolved = snapshot.topicProgress
+          .map((tp) => {
+            const topicId = slugToId.get(tp.topicSlug)
+            if (!topicId) return null
+            return {
+              snapshotId: snapshot.id,
+              topicId,
+              solved: tp.solved,
+              attempted: tp.attempted,
+              masteryScore: MasteryScore.toNumber(tp.masteryScore).toString(),
+            }
+          })
+          .filter((r): r is NonNullable<typeof r> => r !== null)
+
+        if (resolved.length > 0) {
+          await tx
+            .insert(topicSnapshots)
+            .values(resolved)
+            .onConflictDoUpdate({
+              target: [topicSnapshots.snapshotId, topicSnapshots.topicId],
+              set: {
+                solved: sql`excluded.solved`,
+                attempted: sql`excluded.attempted`,
+                masteryScore: sql`excluded.mastery_score`,
+              },
+            })
+        }
       }
-    }
+    })
 
     return snapshot
   }

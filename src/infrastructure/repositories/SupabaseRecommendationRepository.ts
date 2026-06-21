@@ -1,4 +1,4 @@
-import { and, eq, gt } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import { createId } from '@/shared/utils/id'
 import type { Recommendation, RecommendationType } from '@/domain/entities/Recommendation'
 import type { IRecommendationRepository } from '@/domain/repositories/IRecommendationRepository'
@@ -21,7 +21,7 @@ export class SupabaseRecommendationRepository implements IRecommendationReposito
           gt(recommendations.expiresAt, now),
         ),
       )
-      .orderBy(recommendations.priority)
+      .orderBy(recommendations.priority, recommendations.createdAt)
 
     return rows.map((r) => this.toDomain(r))
   }
@@ -41,7 +41,19 @@ export class SupabaseRecommendationRepository implements IRecommendationReposito
         isCompleted: rec.isCompleted,
         expiresAt: rec.expiresAt,
       })
-      .onConflictDoNothing()
+      .onConflictDoUpdate({
+        target: recommendations.id,
+        set: {
+          type: sql`excluded.type`,
+          title: sql`excluded.title`,
+          description: sql`excluded.description`,
+          reasoning: sql`excluded.reasoning`,
+          priority: sql`excluded.priority`,
+          metadata: sql`excluded.metadata`,
+          isCompleted: sql`excluded.is_completed`,
+          expiresAt: sql`excluded.expires_at`,
+        },
+      })
     return rec
   }
 
@@ -63,7 +75,19 @@ export class SupabaseRecommendationRepository implements IRecommendationReposito
           expiresAt: rec.expiresAt,
         })),
       )
-      .onConflictDoNothing()
+      .onConflictDoUpdate({
+        target: recommendations.id,
+        set: {
+          type: sql`excluded.type`,
+          title: sql`excluded.title`,
+          description: sql`excluded.description`,
+          reasoning: sql`excluded.reasoning`,
+          priority: sql`excluded.priority`,
+          metadata: sql`excluded.metadata`,
+          isCompleted: sql`excluded.is_completed`,
+          expiresAt: sql`excluded.expires_at`,
+        },
+      })
     return recs
   }
 

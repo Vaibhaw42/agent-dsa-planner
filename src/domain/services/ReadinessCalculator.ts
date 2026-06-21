@@ -53,6 +53,7 @@ export class ReadinessCalculator {
     }
 
     if (totalWeight === 0) return 0
-    return Math.round((score / totalWeight) * 100) / 100
+    const normalized = score / totalWeight
+    return Math.min(100, Math.round(normalized * 100) / 100)
   }
 }

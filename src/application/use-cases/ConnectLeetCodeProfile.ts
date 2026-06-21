@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { createLeetCodeProfile } from '@/domain/entities/LeetCodeProfile'
 import type { ILeetCodeProfileRepository } from '@/domain/repositories/ILeetCodeProfileRepository'
+import { UserId } from '@/domain/value-objects/UserId'
 import { AppError } from '@/shared/errors/AppError'
 import type { LeetCodeGraphQLClient } from '@/infrastructure/leetcode/LeetCodeGraphQLClient'
 
@@ -22,9 +23,10 @@ export class ConnectLeetCodeProfile {
   ) {}
 
   async execute(input: ConnectLeetCodeProfileInput): Promise<ConnectLeetCodeProfileResult> {
+    const userId = UserId.fromString(input.userId)
     const username = input.username.toLowerCase().trim()
 
-    const existing = await this.profileRepo.findByUserId(input.userId as Parameters<typeof this.profileRepo.findByUserId>[0])
+    const existing = await this.profileRepo.findByUserId(userId)
     if (existing) {
       throw AppError.validation('LeetCode profile already connected. Update instead.')
     }
@@ -36,7 +38,7 @@ export class ConnectLeetCodeProfile {
 
     const profile = createLeetCodeProfile({
       id: randomUUID(),
-      userId: input.userId,
+      userId: UserId.toString(userId),
       username,
       isVerified: true,
       isPublic: true,

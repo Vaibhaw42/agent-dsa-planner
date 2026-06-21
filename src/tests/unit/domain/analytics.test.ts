@@ -59,16 +59,29 @@ describe('ReadinessCalculator', () => {
 
   it('computes Amazon readiness from weighted topics', () => {
     const topics: TopicProgress[] = [
-      makeTopicProgress('array', 100),          // 100% × 20% weight
-      makeTopicProgress('tree', 80),            // 80% × 20% weight
-      makeTopicProgress('dynamic-programming', 60), // 60% × 15% weight
-      makeTopicProgress('graph', 40),           // 40% × 10% weight
-      makeTopicProgress('string', 70),          // 70% × 10% weight
+      makeTopicProgress('array', 100),
+      makeTopicProgress('tree', 80),
+      makeTopicProgress('dynamic-programming', 60),
+      makeTopicProgress('graph', 40),
+      makeTopicProgress('string', 70),
     ]
     const score = calc.compute('amazon', topics)
-    // 100*0.2 + 80*0.2 + 60*0.15 + 40*0.1 + 70*0.1 = 20+16+9+4+7 = 56
-    expect(score).toBeGreaterThan(0)
-    expect(score).toBeLessThanOrEqual(100)
+    // weighted sum: 100*0.20 + 80*0.20 + 60*0.15 + 40*0.10 + 70*0.10 = 56
+    // missing 'linked-list' (weight 0.05) contributes 0 to score, 0.05 to totalWeight
+    // totalWeight = 0.80, normalized = 56 / 0.80 = 70
+    expect(score).toBe(70)
+  })
+
+  it('caps readiness at 100 even if all weighted topics fully mastered', () => {
+    const topics: TopicProgress[] = [
+      makeTopicProgress('array', 100),
+      makeTopicProgress('tree', 100),
+      makeTopicProgress('dynamic-programming', 100),
+      makeTopicProgress('graph', 100),
+      makeTopicProgress('string', 100),
+      makeTopicProgress('linked-list', 100),
+    ]
+    expect(calc.compute('amazon', topics)).toBe(100)
   })
 
   it('returns 0 for empty topics', () => {

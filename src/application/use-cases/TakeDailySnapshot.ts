@@ -3,10 +3,11 @@ import { createDailySnapshot } from '@/domain/entities/DailySnapshot'
 import type { TopicProgress } from '@/domain/entities/DailySnapshot'
 import type { ILeetCodeProfileRepository } from '@/domain/repositories/ILeetCodeProfileRepository'
 import type { ISnapshotRepository } from '@/domain/repositories/ISnapshotRepository'
+import { MasteryCalculator } from '@/domain/services/MasteryCalculator'
+import { targetForTopic } from '@/domain/services/TopicTargets'
 import { AppError } from '@/shared/errors/AppError'
-import { MasteryScore } from '@/domain/value-objects/MasteryScore'
+import { UserId } from '@/domain/value-objects/UserId'
 import type { LeetCodeGraphQLClient } from '@/infrastructure/leetcode/LeetCodeGraphQLClient'
-import type { UserId } from '@/domain/value-objects/UserId'
 
 const SYNC_COOLDOWN_MS = (Number(process.env['LEETCODE_SYNC_COOLDOWN_SECONDS'] ?? 300)) * 1000
 
@@ -21,6 +22,8 @@ export interface TakeDailySnapshotResult {
 }
 
 export class TakeDailySnapshot {
+  private readonly masteryCalc = new MasteryCalculator()
+
   constructor(
     private readonly profileRepo: ILeetCodeProfileRepository,
     private readonly snapshotRepo: ISnapshotRepository,
@@ -28,7 +31,7 @@ export class TakeDailySnapshot {
   ) {}
 
   async execute(input: TakeDailySnapshotInput): Promise<TakeDailySnapshotResult> {
-    const userId = input.userId as UserId
+    const userId = UserId.fromString(input.userId)
 
     const profile = await this.profileRepo.findByUserId(userId)
     if (!profile) throw AppError.notFound('LeetCode profile')
@@ -60,7 +63,7 @@ export class TakeDailySnapshot {
       topicSlug: t.tagSlug,
       solved: t.problemsSolved,
       attempted: t.problemsSolved,
-      masteryScore: MasteryScore.of(Math.min(100, Math.round((t.problemsSolved / 50) * 100))),
+      masteryScore: this.masteryCalc.compute(t.problemsSolved, targetForTopic(t.tagSlug)),
     }))
 
     const snapshot = createDailySnapshot({

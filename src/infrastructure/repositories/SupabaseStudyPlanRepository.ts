@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { StudyPlan, StudyPlanItem, StudyPlanStatus } from '@/domain/entities/StudyPlan'
 import type { IStudyPlanRepository } from '@/domain/repositories/IStudyPlanRepository'
 import type { UserId } from '@/domain/value-objects/UserId'
@@ -25,7 +25,7 @@ export class SupabaseStudyPlanRepository implements IStudyPlanRepository {
     const rows = await this.db
       .select()
       .from(studyPlans)
-      .where(eq(studyPlans.userId, userId as string))
+      .where(and(eq(studyPlans.userId, userId as string), eq(studyPlans.status, 'active')))
       .orderBy(studyPlans.createdAt)
 
     if (rows.length === 0) return []
@@ -34,7 +34,7 @@ export class SupabaseStudyPlanRepository implements IStudyPlanRepository {
     const allItems = await this.db
       .select()
       .from(studyPlanItems)
-      .where(eq(studyPlanItems.studyPlanId, planIds[0]!))
+      .where(inArray(studyPlanItems.studyPlanId, planIds))
       .orderBy(studyPlanItems.orderIndex)
 
     return rows.map((row) => {
@@ -44,40 +44,59 @@ export class SupabaseStudyPlanRepository implements IStudyPlanRepository {
   }
 
   async save(plan: StudyPlan): Promise<StudyPlan> {
-    await this.db
-      .insert(studyPlans)
-      .values({
-        id: plan.id,
-        userId: plan.userId as string,
-        title: plan.title,
-        targetCompany: plan.targetCompany,
-        targetDate: plan.targetDate.toISOString().split('T')[0]!,
-        status: plan.status,
-      })
-      .onConflictDoUpdate({
-        target: studyPlans.id,
-        set: { status: plan.status, targetDate: plan.targetDate.toISOString().split('T')[0]! },
-      })
+    await this.db.transaction(async (tx) => {
+      await tx
+        .insert(studyPlans)
+        .values({
+          id: plan.id,
+          userId: plan.userId as string,
+          title: plan.title,
+          targetCompany: plan.targetCompany,
+          targetDate: plan.targetDate.toISOString().split('T')[0]!,
+          status: plan.status,
+        })
+        .onConflictDoUpdate({
+          target: studyPlans.id,
+          set: {
+            title: plan.title,
+            targetCompany: plan.targetCompany,
+            status: plan.status,
+            targetDate: plan.targetDate.toISOString().split('T')[0]!,
+          },
+        })
 
-    if (plan.items.length > 0) {
-      await this.db
-        .insert(studyPlanItems)
-        .values(
-          plan.items.map((item) => ({
-            id: item.id,
-            studyPlanId: plan.id,
-            topicSlug: item.topicSlug,
-            problemSlug: item.problemSlug,
-            title: item.title,
-            description: item.description,
-            orderIndex: item.orderIndex,
-            isCompleted: item.isCompleted,
-            scheduledDate: item.scheduledDate.toISOString().split('T')[0]!,
-            completedAt: item.completedAt,
-          })),
-        )
-        .onConflictDoNothing()
-    }
+      if (plan.items.length > 0) {
+        await tx
+          .insert(studyPlanItems)
+          .values(
+            plan.items.map((item) => ({
+              id: item.id,
+              studyPlanId: plan.id,
+              topicSlug: item.topicSlug,
+              problemSlug: item.problemSlug,
+              title: item.title,
+              description: item.description,
+              orderIndex: item.orderIndex,
+              isCompleted: item.isCompleted,
+              scheduledDate: item.scheduledDate.toISOString().split('T')[0]!,
+              completedAt: item.completedAt,
+            })),
+          )
+          .onConflictDoUpdate({
+            target: studyPlanItems.id,
+            set: {
+              topicSlug: sql`excluded.topic_slug`,
+              problemSlug: sql`excluded.problem_slug`,
+              title: sql`excluded.title`,
+              description: sql`excluded.description`,
+              orderIndex: sql`excluded.order_index`,
+              isCompleted: sql`excluded.is_completed`,
+              scheduledDate: sql`excluded.scheduled_date`,
+              completedAt: sql`excluded.completed_at`,
+            },
+          })
+      }
+    })
 
     return plan
   }

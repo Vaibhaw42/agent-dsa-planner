@@ -7,6 +7,8 @@ export type ErrorCode =
   | 'LEETCODE_PRIVATE_PROFILE'
   | 'SYNC_COOLDOWN_ACTIVE'
   | 'AI_PROVIDER_ERROR'
+  | 'AI_PARSE_ERROR'
+  | 'AI_SCHEMA_ERROR'
   | 'INTERNAL_ERROR'
 
 export class AppError extends Error {
